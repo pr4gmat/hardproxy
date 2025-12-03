@@ -179,6 +179,10 @@ install_base_packages() {
         apparmor-utils
         auditd
         unattended-upgrades
+        libpam-pwquality
+        libpwquality1
+        cracklib-runtime
+        dialog
     )
 
     local missing=()
@@ -714,6 +718,9 @@ EOF
 setup_password_policy() {
     view_banner "Политика паролей и блокировка аккаунтов"
 
+    export DEBIAN_FRONTEND=noninteractive
+    export DEBCONF_PRIORITY=critical
+
     local PWQUALITY_CONF="/etc/security/pwquality.conf"
     local LOGIN_DEFS="/etc/login.defs"
     local PAM_COMMON_PASSWORD="/etc/pam.d/common-password"
@@ -751,39 +758,31 @@ EOF
         log_warn "${LOGIN_DEFS} не найден, пропускаю настройку."
     fi
 
-    # --- 3. Настройка common-password (pwquality + remember) ---
+        # --- 3. Настройка common-password (pwquality + remember=3) ---
     if [[ -f "$PAM_COMMON_PASSWORD" ]]; then
-        log_info "Настраиваю PAM-модуль сложности паролей и remember в ${PAM_COMMON_PASSWORD}..."
+        log_info "Настраиваю PAM: pam_pwquality и remember=3"
 
-        # 3.1. Настраиваем строку с pam_pwquality.so (или добавляем, если её нет)
-        if grep -q "pam_pwquality.so" "$PAM_COMMON_PASSWORD"; then
-            # Заменяем существующую строку нашей жёсткой политикой
-            sed -i 's#^password\s\+requisite\s\+pam_pwquality.so.*#password requisite pam_pwquality.so retry=3 minlen=12 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1#g' "$PAM_COMMON_PASSWORD"
-        else
-            # Вставляем строку перед pam_unix.so, если найдём
-            if grep -q "pam_unix.so" "$PAM_COMMON_PASSWORD"; then
-                sed -i 's#^\(password\s\+.*pam_unix.so.*\)#password requisite pam_pwquality.so retry=3 minlen=12 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1\n\1#' "$PAM_COMMON_PASSWORD"
-            else
-                # Если вообще всё странно — просто добавим в конец
-                cat >>"$PAM_COMMON_PASSWORD" <<'EOF'
-password requisite pam_pwquality.so retry=3 minlen=12 ucredit=-1 lcredit=-1 dcredit=-1 ocredit=-1
-EOF
-            fi
-        fi
+        # 3.1. Удаляем любые старые строки pam_pwquality
+        sed -i '/pam_pwquality.so/d' "$PAM_COMMON_PASSWORD"
 
-        # 3.2. Добавляем remember=3 к pam_unix.so, если ещё нет
+        # 3.2. Добавляем pam_pwquality в начало файла
+        sed -i '1i password requisite pam_pwquality.so retry=3 minlen=12 dcredit=-1 ucredit=-1 lcredit=-1 ocredit=-1' "$PAM_COMMON_PASSWORD"
+
+        # 3.3. Добавляем remember=3 к строке с pam_unix.so (если ещё нет)
         if grep -q "pam_unix.so" "$PAM_COMMON_PASSWORD"; then
             if ! grep -q "pam_unix.so.*remember=" "$PAM_COMMON_PASSWORD"; then
-                sed -i 's/\(pam_unix.so.*\)$/\1 remember=3/' "$PAM_COMMON_PASSWORD"
-                log_ok "Добавлен remember=3 к pam_unix.so"
+                sed -i 's/^\(password.*pam_unix.so.*\)$/\1 remember=3/' "$PAM_COMMON_PASSWORD"
+                log_ok "Добавлен remember=3 к строке с pam_unix.so в ${PAM_COMMON_PASSWORD}"
             else
-                log_ok "remember= уже настроен для pam_unix.so, оставляю как есть"
+                log_ok "remember= уже присутствует в строке pam_unix.so, оставляю как есть"
             fi
         else
-            log_warn "pam_unix.so не найден в ${PAM_COMMON_PASSWORD}, пропускаю remember=3."
+            log_warn "В ${PAM_COMMON_PASSWORD} не найдено pam_unix.so, не смог добавить remember=3"
         fi
+
+        log_ok "PAM успешно настроен: pam_pwquality + remember=3"
     else
-        log_warn "${PAM_COMMON_PASSWORD} не найден, пропускаю настройку политики паролей в PAM."
+        log_warn "${PAM_COMMON_PASSWORD} не найден, пропускаю настройку PAM"
     fi
 
     # --- 4. Блокировка аккаунтов при неудачных попытках (pam_tally2) ---
