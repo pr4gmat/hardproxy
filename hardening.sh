@@ -33,7 +33,7 @@ view_logo() {
 
 Version: v1.0
 EOF
-    echo -e "${RESET}"
+    echo -e "${VIEW_RESET}"
 }
 
 # === Баннер секции ===
