@@ -71,7 +71,7 @@ log_error() { view_log "ERROR" "$1"; }
 ############################################
 
 # Путь к лог-файлу
-LOG_FILE="/var/log/vps_hardening.log"
+LOG_FILE="/var/log/hardening.log"
 
 setup_logging() {
     local log_dir
@@ -496,7 +496,7 @@ harden_ssh_config() {
     log_ok "Резервная копия sshd_config создана"
 
     # --- 2. Удаляем старый наш блок, если он уже был ---
-    sed -i '/^# ===== Настройки безопасности (добавлено скриптом VPS Hardening Engine) =====/,$d' "$sshd_conf"
+    sed -i '/^# ===== Настройки безопасности (добавлено скриптом Hardening) =====/,$d' "$sshd_conf"
 
     # --- 3. Чистим старые директивы, чтобы потом добавить свои ---
     sed -i \
@@ -515,7 +515,7 @@ harden_ssh_config() {
     # --- 4. Добавляем наши настройки в конец файла ---
     cat >>"$sshd_conf" <<EOF
 
-# ===== Настройки безопасности (добавлено скриптом VPS Hardening Engine) =====
+# ===== Настройки безопасности (добавлено скриптом Hardening) =====
 Port ${ENGINE_SSH_PORT}
 PermitRootLogin no
 PasswordAuthentication yes
@@ -875,12 +875,12 @@ harden_sysctl_and_services() {
     view_banner "Системное ужесточение (sysctl и сервисы)"
 
     # --- 1. Настройки ядра (sysctl) ---
-    local SYSCTL_CONF="/etc/sysctl.d/99-vps-hardening.conf"
+    local SYSCTL_CONF="/etc/sysctl.d/99-hardening.conf"
 
     log_info "Записываю безопасные параметры ядра в ${SYSCTL_CONF}..."
 
     cat > "$SYSCTL_CONF" <<'EOF'
-# ===== VPS Hardening: базовые сетевые настройки безопасности =====
+# ===== Hardening: базовые сетевые настройки безопасности =====
 
 # Отключение маршрутизации между интерфейсами
 net.ipv4.ip_forward = 0
