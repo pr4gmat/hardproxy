@@ -103,11 +103,13 @@ setup_logging() {
 
 check_root() {
     if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
-        log_error "Скрипт должен быть запущен от root."
-        echo "Запустите: sudo bash $0"
+        # Тут логгера ещё нет, поэтому просто echo
+        echo "[ERROR] Скрипт должен быть запущен от root." >&2
+        echo "Запустите: sudo bash $0" >&2
         exit 1
     fi
-    log_ok "Проверка root-привилегий пройдена"
+    # Тут тоже без логгера — просто сообщение в консоль
+    echo "[OK] Проверка root-привилегий пройдена"
 }
 
 check_ubuntu() {
@@ -170,6 +172,7 @@ install_base_packages() {
         wget
         git
         ca-certificates
+        apt-utils
         ufw
         fail2ban
         apparmor
@@ -514,7 +517,6 @@ harden_ssh_config() {
 
 # ===== Настройки безопасности (добавлено скриптом VPS Hardening Engine) =====
 Port ${ENGINE_SSH_PORT}
-Protocol 2
 PermitRootLogin no
 PasswordAuthentication yes
 PermitEmptyPasswords no
@@ -652,12 +654,17 @@ enabled = true
 port = ${ENGINE_SSH_PORT}
 filter = sshd
 logpath = /var/log/auth.log
-backend = systemd
 
-maxretry = 5          # 5 попыток
-findtime = 10m        # в течение 10 минут
-bantime = 1h          # бан на 1 час
+# Максимум 5 попыток входа
+maxretry = 5
+
+# В течение 10 минут
+findtime = 10m
+
+# Бан на 1 час
+bantime = 1h
 EOF
+
 
     if [[ $? -ne 0 ]]; then
         log_error "Не удалось создать файл Fail2Ban: ${jail_file}"
@@ -669,19 +676,35 @@ EOF
     # Включаем Fail2Ban в автозагрузку
     systemctl enable fail2ban >/dev/null 2>&1 || true
 
-    # Перезапуск Fail2Ban
-    log_info "Перезапуск Fail2Ban..."
-    if ! systemctl restart fail2ban; then
-        log_error "Не удалось перезапустить Fail2Ban."
+    log_info "Проверяю конфиг Fail2Ban (fail2ban-client -d)..."
+    if ! fail2ban-client -d >/dev/null 2>&1; then
+        log_error "Fail2Ban конфиг содержит ошибки. Проверьте /etc/fail2ban/*.conf"
         exit 1
     fi
 
-    log_ok "Fail2Ban успешно перезапущен"
+    # Перезапуск Fail2Ban
+    log_info "Перезапуск Fail2Ban..."
+    if ! systemctl restart fail2ban; then
+        log_error "Не удалось перезапустить Fail2Ban. Проверьте логи: journalctl -u fail2ban"
+        exit 1
+    fi
 
-    # Показываем статус
+    if systemctl is-active --quiet fail2ban; then
+        log_ok "Fail2Ban успешно запущен"
+    else
+        log_warn "Fail2Ban не активен после перезапуска. Проверьте логи: journalctl -u fail2ban"
+        exit 1
+    fi
+
     echo
-    log_info "Статус fail2ban-client для sshd:"
-    fail2ban-client status sshd || log_warn "Не удалось получить статус jail-а sshd"
+    log_info "Проверка статуса jail-а sshd..."
+    if fail2ban-client status sshd >/dev/null 2>&1; then
+        fail2ban-client status sshd
+    else
+        log_warn "Не удалось получить статус jail-а sshd. Возможно, jail ещё не активен или есть ошибка в конфигурации."
+    fi
+
+    log_ok "Fail2Ban настроен"
 }
 
 ############################################
